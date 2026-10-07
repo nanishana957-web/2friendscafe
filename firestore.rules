@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----
+    function signedIn() { return request.auth != null; }
+    function profile()  { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isAdmin()  { return hasProfile() && profile().role == 'admin'; }
+    function isStaff()  { return hasProfile() && profile().role in ['admin', 'staff']; }
+
+    // ---- users/{uid}: { u, n, role, code, cnt } ----
+    match /users/{uid} {
+      // own profile (needed at login) or admin sees everyone
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      // first-ever signup becomes admin (only while meta/init does not exist)
+      allow create: if isAdmin()
+        || (request.auth.uid == uid
+            && !exists(/databases/$(database)/documents/meta/init)
+            && request.resource.data.role == 'admin');
+
+      allow delete: if isAdmin();
+
+      // admin edits anything; staff may only bump their own bill counter
+      allow update: if isAdmin()
+        || (request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['billCount']));
+    }
+
+    // ---- meta/init: written once at first-admin setup ----
+    match /meta/{doc} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !exists(/databases/$(database)/documents/meta/init);
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- menu/main and settings/main: everyone staff reads, admin writes ----
+    match /menu/{doc} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+    match /settings/{doc} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // ---- stock/{menuItemId}: { qty, low } ----
+    match /stock/{id} {
+      allow read: if isStaff();
+      allow create, delete: if isAdmin();
+      // staff may only change qty (billing deducts stock)
+      allow update: if isAdmin()
+        || (isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty']));
+    }
+
+    // ---- orders/{id}: { by, day, t, tot, pay, lines, lb } ----
+    match /orders/{id} {
+      allow read: if isAdmin() || (isStaff() && resource.data.by == request.auth.uid);
+      allow create: if isStaff() && request.resource.data.by == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+  }
+}

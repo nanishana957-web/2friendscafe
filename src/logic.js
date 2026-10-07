@@ -1,5 +1,4 @@
 import { auth, fdb, firebaseApp } from './firebase.js';
-import * as XLSX from 'xlsx';
 
 export function initLogic() {
   if (window._logicInitialized) return;
@@ -68,7 +67,7 @@ const off=()=>{un.forEach(f=>f());uo.forEach(f=>f());un=[];uo=[]};
 async function saveMenu(){if(cur.role!="admin")return;try{await fdb.doc("menu/main").set({items:menu})}catch(e){toast("Save failed")}}
 async function saveSet(){if(cur.role!="admin")return;try{await fdb.doc("settings/main").set(S)}catch(e){toast("Save failed")}}
 async function placeOrder(o){try{const ur=fdb.doc("users/"+cur.u),or=fdb.collection("orders").doc();
-await fdb.runTransaction(async t=>{const s=await t.get(ur),d=s.data(),n=(d.cnt||0)+1,sk=o.lines.filter(l=>stk[l.id]).map(l=>({r:fdb.doc("stock/"+l.id),q:l.qty})),sn=await Promise.all(sk.map(x=>t.get(x.r)));o.lb=(d.code||"XX")+"-"+String(n).padStart(4,"0");o.id=or.id;t.update(ur,{cnt:n});t.set(or,o);sn.forEach((z,i)=>{if(z.exists)t.update(sk[i].r,{qty:Math.max(0,z.data().qty-sk[i].q)})})});return true}catch(e){toast("Could not save the bill. Check your connection.");return false}}
+await fdb.runTransaction(async t=>{const s=await t.get(ur),d=s.data(),n=(d.billCount||0)+1,sk=o.lines.filter(l=>stk[l.id]).map(l=>({r:fdb.doc("stock/"+l.id),q:l.qty})),sn=await Promise.all(sk.map(x=>t.get(x.r)));o.lb=(d.initials||"XX")+"-"+String(n).padStart(4,"0");o.id=or.id;t.update(ur,{billCount:n});t.set(or,o);sn.forEach((z,i)=>{if(z.exists)t.update(sk[i].r,{qty:Math.max(0,z.data().qty-sk[i].q)})})});return true}catch(e){toast("Could not save the bill. Check your connection.");return false}}
 async function delOrder(id){try{await fdb.doc("orders/"+id).delete()}catch(e){toast("Delete failed")}}
 async function wipeOrders(){try{const L=orders.slice();for(let i=0;i<L.length;i+=400){const b=fdb.batch();L.slice(i,i+400).forEach(o=>b.delete(fdb.doc("orders/"+o.id)));await b.commit()}toast("Bills deleted")}catch(e){toast("Delete failed")}}
 function subOrders(){uo.forEach(f=>f());uo=[];let q=fdb.collection("orders");
@@ -77,14 +76,14 @@ uo.push(q.onSnapshot(s=>{orders=s.docs.map(d=>d.data()).sort((a,b)=>b.t-a.t);dra
 function subs(){off();
 un.push(fdb.doc("menu/main").onSnapshot(s=>{if(s.exists)menu=s.data().items||[];else if(cur.role=="admin"&&!seedM){seedM=1;saveMenu()}drawMenu();drawCart();drawMgr()}));
 un.push(fdb.doc("settings/main").onSnapshot(s=>{if(s.exists)S=Object.assign(S,s.data());else if(cur.role=="admin"&&!seedS){seedS=1;saveSet()}$("#hname").textContent=S.name;drawCart();drawSet()}));
-if(cur.role=="admin")un.push(fdb.collection("users").onSnapshot(s=>{users={};s.docs.forEach(d=>{users[d.id]=d.data();nm[d.id]=d.data().n});drawUsers();drawOrders()}));
+if(cur.role=="admin")un.push(fdb.collection("users").onSnapshot(s=>{users={};s.docs.forEach(d=>{users[d.id]=d.data();nm[d.id]=d.data().name});drawUsers();drawOrders()}));
 un.push(fdb.collection("stock").onSnapshot(s=>{stk={};s.docs.forEach(d=>stk[d.id]=Object.assign({low:5},d.data()));drawMenu();drawStock();lowAlert()},()=>{}));
 subOrders()}
-function drawUsers(){if(cur.role!="admin")return;$("#ulist").innerHTML=Object.entries(users).map(([id,u])=>`<div class="line"><span class="n"><b>${E(u.n)}</b> (${E(u.u)}), ${u.role}</span>${id==cur.u?"":`<button class="btn d w" data-x="${id}">Remove</button>`}</div>`).join("")}
+function drawUsers(){if(cur.role!="admin")return;$("#ulist").innerHTML=Object.entries(users).map(([id,u])=>`<div class="line"><span class="n"><b>${E(u.name)}</b> (${E(u.email)}), ${u.role}</span>${id==cur.u?"":`<button class="btn d w" data-x="${id}">Remove</button>`}</div>`).join("")}
 $("#ulist").onclick=async e=>{const x=e.target.dataset.x;if(x&&cur.role=="admin"&&confirm("Remove this account? They will lose access."))try{await fdb.doc("users/"+x).delete()}catch(er){toast("Could not remove")}};
 $("#uadd").onclick=async()=>{if(cur.role!="admin")return;const u=$("#ua").value.trim().toLowerCase(),n=$("#un").value.trim()||u,p=$("#up").value,r=$("#ur").value;
 if(!/^[a-z0-9._-]{3,}$/.test(u)){toast("Username: 3+ letters or numbers");return}if(p.length<6){toast("Password needs 6+ characters");return}
-try{if(!sec)sec=firebase.initializeApp(FIREBASE_CONFIG,"sec");const sa=sec.auth(),c=await sa.createUserWithEmailAndPassword(em(u),p);await fdb.doc("users/"+c.user.uid).set({u,n,role:r,code:ini(n),cnt:0});await sa.signOut();$("#ua").value=$("#un").value=$("#up").value="";toast("Account added")}catch(e){toast(e.code=="auth/email-already-in-use"?"Username already used":"Could not add: "+(e.code||"error"))}};
+try{if(!sec)sec=firebase.initializeApp(FIREBASE_CONFIG,"sec");const sa=sec.auth(),c=await sa.createUserWithEmailAndPassword(em(u),p);await fdb.doc("users/"+c.user.uid).set({email:u,name:n,role:r,initials:ini(n),billCount:0,createdAt:Date.now()});await sa.signOut();$("#ua").value=$("#un").value=$("#up").value="";toast("Account added")}catch(e){toast(e.code=="auth/email-already-in-use"?"Username already used":"Could not add: "+(e.code||"error"))}};
 $("#cpb").onclick=async()=>{const u=auth.currentUser,n=$("#np2").value;if(n.length<6){toast("New password needs 6+ characters");return}
 try{await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email,$("#cp").value));await u.updatePassword(n);$("#cp").value=$("#np2").value="";toast("Password changed")}catch(e){toast("Current password is wrong")}};
 let stk={},rep=null;
@@ -175,7 +174,7 @@ dl(b,nf);if(n)window.open("https://wa.me/"+n,"_blank");toast("PDF saved. In the 
 async function showLogin(){off();orders=[];cur={u:"",role:"view"};document.body.className="out";$("#login").style.display="flex";$("#lp").value="";
 try{const s=await fdb.doc("meta/init").get(),f=!s.exists;$("#lf").style.display=f?"none":"";$("#sf").style.display=f?"":"none";gate(f?"First-time setup: create the owner account.":"")}catch(e){gate("Cannot reach the database. Check the Firestore rules and your internet.")}}
 async function enter(u){try{const d=await fdb.doc("users/"+u.uid).get();if(!d.exists)throw{code:"permission-denied"};const x=d.data();
-cur={u:u.uid,role:x.role};nm[u.uid]=x.n;document.body.className=x.role=="admin"?"":"staff";$("#ub").textContent=x.n+" ("+x.role+")";$("#login").style.display="none";
+cur={u:u.uid,role:x.role};nm[u.uid]=x.name;document.body.className=x.role=="admin"?"":"staff";$("#ub").textContent=x.name+" ("+x.role+")";$("#login").style.display="none";
 document.querySelectorAll("nav button").forEach((b,i)=>b.classList.toggle("on",i==0));document.querySelectorAll(".tab").forEach(s=>s.classList.toggle("on",s.id=="t-bill"));subs();render()}
 catch(e){await auth.signOut();$("#le").textContent=e.code=="permission-denied"?"This account has no access. Ask the owner.":"Connection problem. Try again."}}
 $("#lb").onclick=async()=>{try{await auth.signInWithEmailAndPassword(em($("#lu").value),$("#lp").value);$("#le").textContent=""}catch(e){$("#le").textContent="Wrong username or password"}};
@@ -183,7 +182,7 @@ $("#lp").onkeydown=e=>{if(e.key=="Enter")$("#lb").click()};
 $("#lo").onclick=()=>{reset();auth.signOut()};
 $("#sb").onclick=async()=>{const n=$("#sn").value.trim(),e=$("#se").value.trim().toLowerCase(),p=$("#sp").value;
 if(!n||!e.includes("@")||p.length<6){$("#le2").textContent="Enter your name, a real email, and a 6+ character password";return}
-window.creating=true;try{const c=await auth.createUserWithEmailAndPassword(e,p),b=fdb.batch();b.set(fdb.doc("users/"+c.user.uid),{u:e,n,role:"admin",code:ini(n),cnt:0});b.set(fdb.doc("meta/init"),{t:Date.now()});await b.commit();window.creating=false;enter(c.user)}catch(x){window.creating=false;$("#le2").textContent=x.message;if(auth.currentUser)auth.signOut()}};
+window.creating=true;try{const c=await auth.createUserWithEmailAndPassword(e,p),b=fdb.batch();b.set(fdb.doc("users/"+c.user.uid),{email:e,name:n,role:"admin",initials:ini(n),billCount:0,createdAt:Date.now()});b.set(fdb.doc("meta/init"),{t:Date.now()});await b.commit();window.creating=false;enter(c.user)}catch(x){window.creating=false;$("#le2").textContent=x.message;if(auth.currentUser)auth.signOut()}};
 
   auth.onAuthStateChanged(u=>{if(window.creating)return;u?enter(u):showLogin()});
 
