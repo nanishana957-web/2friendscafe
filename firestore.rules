@@ -36,21 +36,20 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // ---- menu/main and settings/main: everyone staff reads, admin writes ----
+    // ---- menu/main and settings/main: public read, admin writes ----
     match /menu/{doc} {
-      allow read: if isStaff();
+      allow read: if true;
       allow write: if isAdmin();
     }
     match /settings/{doc} {
-      allow read: if isStaff();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     // ---- stock/{menuItemId}: { qty, low } ----
     match /stock/{id} {
-      allow read: if isStaff();
+      allow read: if true; // allow customers to see what's out of stock
       allow create, delete: if isAdmin();
-      // staff may only change qty (billing deducts stock)
       allow update: if isAdmin()
         || (isStaff() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty']));
     }
@@ -60,6 +59,25 @@ service cloud.firestore {
       allow read: if isAdmin() || (isStaff() && resource.data.by == request.auth.uid);
       allow create: if isStaff() && request.resource.data.by == request.auth.uid;
       allow update, delete: if isAdmin();
+    }
+
+    // ---- kiosk_orders/{id}: public create, staff read/update/delete ----
+    match /kiosk_orders/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['t','day','cust','phone','tbl','type','lines','sub','d','g','ro','tot','gst','status','token'])
+        && request.resource.data.lines is list
+        && request.resource.data.lines.size() > 0
+        && request.resource.data.lines.size() <= 50
+        && request.resource.data.tot is number
+        && request.resource.data.cust is string
+        && request.resource.data.cust.size() <= 60;
+      allow read, update, delete: if isStaff();
+    }
+
+    // ---- kiosk_counter/{day}: daily token counter, public can only add 1 ----
+    match /kiosk_counter/{day} {
+      allow get: if true;
+      allow create: if request.resource.data.keys().hasOnly(['n']) && request.resource.data.n == 1;
+      allow update: if request.resource.data.keys().hasOnly(['n']) && request.resource.data.n == resource.data.n + 1;
     }
   }
 }
