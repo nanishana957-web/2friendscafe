@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { fdb } from './firebase';
-import './index.css';
-import './kiosk.css';
+import './theme.css';
 import { Search, X, ArrowRight, ArrowLeft, CheckCircle2, Utensils, ShoppingBag } from 'lucide-react';
 
 export default function Kiosk() {

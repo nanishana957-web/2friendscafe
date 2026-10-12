@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import './index.css';
+import './theme.css';
 import { initLogic } from './logic';
 import htmlTemplate from './template.html?raw';
 import Kiosk from './Kiosk';
