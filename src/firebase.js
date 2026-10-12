@@ -1,6 +1,7 @@
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/firestore';
+import 'firebase/compat/storage';
 
 export const FIREBASE_CONFIG = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -18,4 +19,5 @@ if (!firebase.apps.length) {
 export const firebaseApp = firebase.app();
 export const auth = firebase.auth();
 export const fdb = firebase.firestore();
+export const storage = firebase.storage();
 export { firebase };

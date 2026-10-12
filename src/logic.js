@@ -1,11 +1,11 @@
-import { auth, fdb, firebaseApp, firebase, FIREBASE_CONFIG } from './firebase.js';
+import { auth, fdb, storage, firebaseApp, firebase, FIREBASE_CONFIG } from './firebase.js';
 
 export function initLogic() {
   if (window._logicInitialized) return;
   window._logicInitialized = true;
 
 
-let kioskOrders=[],loadedKid="",kioskSeen=false;
+let kioskOrders=[],loadedKid="",kioskSeen=false,kit=[],kitSeen=null;
 const $=s=>document.querySelector(s),E=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const ld=(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}};
 const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
@@ -19,7 +19,7 @@ function go(t){document.querySelectorAll("nav button").forEach(b=>b.classList.to
 $("#nav").onclick=e=>{const b=e.target.closest("button[data-t]");if(!b)return;go(b.dataset.t);render()};
 function cats(){return["All",...new Set(menu.map(m=>m.cat))]}
 function drawMenu(){const q=$("#q").value.toLowerCase();$("#cats").innerHTML=cats().map(c=>`<button class="chip ${c==cat?"on":""}" data-c="${E(c)}">${E(c)}</button>`).join("");
-$("#grid").innerHTML=menu.filter(m=>(cat=="All"||m.cat==cat)&&m.name.toLowerCase().includes(q)).map(m=>{const s=stk[m.id],out=s&&s.qty<=0;return `<button class="item ${m.on&&!out?"":"off"}" data-id="${m.id}"><b>${E(m.name)}</b><span>${rs(m.price)}</span>${s?`<small style="display:block;color:${s.qty<=s.low?"var(--bad)":"var(--mu)"}">${out?"Out of stock":"Left: "+s.qty}</small>`:""}</button>`}).join("")||'<div class="empty">No items found</div>'}
+$("#grid").innerHTML=menu.filter(m=>(cat=="All"||m.cat==cat)&&m.name.toLowerCase().includes(q)).map(m=>{const s=stk[m.id],out=s&&s.qty<=0;return `<button class="item ${m.on&&!out?"":"off"}${m.img?" pic":""}" data-id="${m.id}">${m.img?`<img src="${E(m.img)}" alt="" loading="lazy">`:""}<b>${m.veg===true?'<i class="vd" title="Veg"></i>':m.veg===false?'<i class="vd nv" title="Non-veg"></i>':""}${E(m.name)}</b><span>${rs(m.price)}</span>${s?`<small style="display:block;color:${s.qty<=s.low?"var(--bad)":"var(--mu)"}">${out?"Out of stock":"Left: "+s.qty}</small>`:""}</button>`}).join("")||'<div class="empty">No items found</div>'}
 $("#cats").onclick=e=>{if(e.target.dataset.c){cat=e.target.dataset.c;drawMenu()}};
 $("#q").oninput=drawMenu;
 $("#grid").onclick=e=>{const b=e.target.closest(".item");if(!b)return;const id=b.dataset.id,s=stk[id];if(s&&(cart[id]||0)>=s.qty){toast("Only "+s.qty+" left");return}cart[id]=(cart[id]||0)+1;drawCart()};
@@ -31,10 +31,10 @@ function updBar(c){const n=c.lines.reduce((a,x)=>a+x.qty,0);$("#cn").textContent
 $("#cbar").onclick=()=>$("#cpanel").classList.add("open");$("#cx").onclick=()=>$("#cpanel").classList.remove("open");
 $("#cart").onclick=e=>{const b=e.target.closest("button");if(!b)return;const id=b.dataset.id,s=stk[id];if(b.dataset.a=="+"&&s&&cart[id]>=s.qty){toast("Only "+s.qty+" left");return}cart[id]+=b.dataset.a=="+"?1:-1;if(cart[id]<1)delete cart[id];drawCart()};
 $("#disc").oninput=drawCart;$("#dtype").onchange=drawCart;
-function reset(){loadedKid="";cart={};$("#cust").value=$("#tbl").value=$("#ph").value="";$("#disc").value=0;drawCart()}
+function reset(){loadedKid="";cart={};$("#cust").value=$("#tbl").value=$("#ph").value=$("#note").value="";$("#disc").value=0;drawCart()}
 $("#clear").onclick=reset;
 $("#gen").onclick=async()=>{const c=calc();if(!c.lines.length){sendNext=false;toast("Add at least one item");return}
-const o={by:cur.u,t:Date.now(),day:today(),cust:$("#cust").value.trim(),tbl:$("#tbl").value.trim(),ph:$("#ph").value.trim(),type:document.querySelector("[name=ot]:checked").value,pay:$("#pay").value,lines:c.lines,sub:c.sub,d:c.d,g:c.g,ro:c.ro,tot:c.tot,gst:S.gst};
+const o={by:cur.u,t:Date.now(),day:today(),cust:$("#cust").value.trim(),tbl:$("#tbl").value.trim(),ph:$("#ph").value.trim(),note:$("#note").value.trim(),type:document.querySelector("[name=ot]:checked").value,pay:$("#pay").value,lines:c.lines,sub:c.sub,d:c.d,g:c.g,ro:c.ro,tot:c.tot,gst:S.gst};
 if(loadedKid){const k=kioskOrders.find(x=>x.id==loadedKid);if(k)o.kt=k.token||""}
 if(!await placeOrder(o,loadedKid)){sendNext=false;return}show(o);reset();if(sendNext){sendNext=false;if(waNum(o.ph))$("#wa").click();else{toast("Enter the customer number, then tap Send");$("#wph").focus()}}};
 $("#gens").onclick=()=>{sendNext=true;$("#gen").click()};
@@ -59,17 +59,32 @@ $("#fdate").value=fd=today();$("#oq").oninput=e=>{oq=e.target.value.trim().toLow
 function drawOrders(){const L=orders.filter(o=>(cur.role=="admin"||o.by==cur.u)&&(!fd||new Date(o.t).toLocaleDateString("en-CA")==fd)),rev=L.reduce((a,o)=>a+o.tot,0),by=p=>L.filter(o=>o.pay==p).reduce((a,o)=>a+o.tot,0);
 $("#stats").innerHTML=[["Orders",L.length],["Revenue",rs(rev)],["Average bill",rs(L.length?rev/L.length:0)],["Cash",rs(by("Cash"))],["UPI",rs(by("UPI"))],["Card",rs(by("Card"))]].map(s=>`<div class="card stat"><b>${s[1]}</b><span>${s[0]}</span></div>`).join("");
 const LS=oq?L.filter(o=>((o.lb||"")+" "+(o.kt?"kiosk #"+o.kt:"")+" "+(o.cust||"")+" "+(nm[o.by]||"")).toLowerCase().includes(oq)):L;
-const KR=kioskOrders.map(o=>`<tr class="kr"><td data-l="Bill">Kiosk #${E(o.token||"")}</td><td data-l="Time">${new Date(o.t).toLocaleString("en-IN",{dateStyle:"short",timeStyle:"short"})}</td><td data-l="By">Kiosk</td><td data-l="Customer">${E(o.cust||"-")}</td><td data-l="Type">${E(o.type||"")}</td><td data-l="Pay">Pending</td><td data-l="Total">${rs(o.tot)}</td><td data-l=""><button class="btn s w" data-kid="${o.id}">Load</button> <button class="btn d w" data-kdel="${o.id}">Dismiss</button></td></tr>`).join("");
+const KR=kioskOrders.map(o=>`<tr class="kr"><td data-l="Bill">Kiosk #${E(o.token||"")}</td><td data-l="Time">${new Date(o.t).toLocaleString("en-IN",{dateStyle:"short",timeStyle:"short"})}</td><td data-l="By">Kiosk</td><td data-l="Customer">${E(o.cust||"-")}</td><td data-l="Type">${E(o.type||"")}</td><td data-l="Pay">Pending</td><td data-l="Total">${rs(o.tot)}</td><td data-l=""><button class="btn s w" data-kpay="Cash" data-k="${o.id}">Cash</button> <button class="btn s w" data-kpay="UPI" data-k="${o.id}">UPI</button> <button class="btn s w" data-kid="${o.id}">Edit</button> <button class="btn d w" data-kdel="${o.id}" aria-label="Remove">&times;</button></td></tr>`).join("");
 $("#olist").innerHTML=KR+paged("o",LS,"#pg-o",drawOrders).map(o=>`<tr><td data-l="Bill">${E(o.lb||"")}${o.kt?` <small style="color:#856404;font-weight:700">Kiosk #${E(o.kt)}</small>`:""}</td><td data-l="Time">${new Date(o.t).toLocaleString("en-IN",{dateStyle:"short",timeStyle:"short"})}</td><td data-l="By">${E(nm[o.by]||"Staff")}</td><td data-l="Customer">${E(o.cust||"-")}</td><td data-l="Type">${o.type}</td><td data-l="Pay">${o.pay}</td><td data-l="Total">${rs(o.tot)}</td><td data-l=""><button class="btn s w" data-v="${o.id}">View</button> <button class="btn d w adm" data-x="${o.id}">Delete</button></td></tr>`).join("")||'<tr><td colspan="8" class="empty">No orders for this date</td></tr>';
 const t={};L.forEach(o=>o.lines.forEach(l=>t[l.name]=(t[l.name]||0)+l.qty));
 $("#top").innerHTML=Object.entries(t).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([n,q])=>`<div class="line"><span class="n">${E(n)}</span><b>${q}</b></div>`).join("")||'<div class="empty">Nothing sold yet</div>'}
-$("#olist").onclick=e=>{if(e.target.dataset.kid||e.target.dataset.kdel)return $("#kiosk-alerts").onclick(e);const v=e.target.dataset.v,x=e.target.dataset.x;if(v)show(orders.find(o=>o.id==v));if(x&&cur.role=="admin"&&confirm("Delete this bill?"))delOrder(x)};
+$("#olist").onclick=e=>{const kb=e.target.closest("button");if(kb&&(kb.dataset.kid||kb.dataset.kdel||kb.dataset.kpay))return $("#kiosk-alerts").onclick(e);const v=e.target.dataset.v,x=e.target.dataset.x;if(v)show(orders.find(o=>o.id==v));if(x&&cur.role=="admin"&&confirm("Delete this bill?"))delOrder(x)};
 function drawMgr(){$("#cl").innerHTML=cats().slice(1).map(c=>`<option value="${E(c)}">`).join("");
-$("#mlist").innerHTML=paged("m",menu,"#pg-m",drawMgr).map(m=>`<tr><td data-l="Item">${E(m.name)}</td><td data-l="Category">${E(m.cat)}</td><td data-l="Price ₹"><input type="number" value="${m.price}" data-p="${m.id}" style="width:90px"></td><td data-l="Available"><input type="checkbox" ${m.on?"checked":""} data-o="${m.id}" style="width:auto" aria-label="Available"></td><td data-l=""><button class="btn d w" data-d="${m.id}">Remove</button></td></tr>`).join("")}
-$("#mlist").onchange=e=>{const t=e.target,m=menu.find(x=>x.id==(t.dataset.p||t.dataset.o));if(!m)return;if(t.dataset.p)m.price=Math.max(0,+t.value||0);else m.on=t.checked;saveMenu();toast("Saved")};
-$("#mlist").onclick=e=>{const d=e.target.dataset.d;if(d&&confirm("Remove this item?")){menu=menu.filter(m=>m.id!=d);delete cart[d];saveMenu();drawMgr()}};
+$("#mlist").innerHTML=paged("m",menu,"#pg-m",drawMgr).map(m=>`<tr><td data-l="Photo"><div class="mph">${m.img?`<img src="${E(m.img)}" alt="">`:`<span>${E((m.name||"?")[0])}</span>`}<div><button class="btn s w" data-up="${m.id}">${m.img?"Change":"Add photo"}</button>${m.img?` <button class="btn d w" data-rm="${m.id}" aria-label="Remove photo">&times;</button>`:""}</div></div></td><td data-l="Item">${E(m.name)}</td><td data-l="Type"><select data-v="${m.id}" aria-label="Veg or non-veg" class="vsel ${m.veg===true?"v":m.veg===false?"n":"u"}"><option value="" ${m.veg===undefined?"selected":""}>Not set</option><option value="1" ${m.veg===true?"selected":""}>Veg</option><option value="0" ${m.veg===false?"selected":""}>Non-veg</option></select></td><td data-l="Category">${E(m.cat)}</td><td data-l="Price ₹"><input type="number" value="${m.price}" data-p="${m.id}" style="width:90px"></td><td data-l="Available"><input type="checkbox" ${m.on?"checked":""} data-o="${m.id}" style="width:auto" aria-label="Available"></td><td data-l=""><button class="btn d w" data-d="${m.id}">Remove</button></td></tr>`).join("")}
+$("#mlist").onchange=e=>{const t=e.target,m=menu.find(x=>x.id==(t.dataset.p||t.dataset.o||t.dataset.v));if(!m)return;if(t.dataset.p)m.price=Math.max(0,+t.value||0);else if(t.dataset.v){if(t.value==="")delete m.veg;else m.veg=t.value=="1";drawMgr();drawMenu()}else m.on=t.checked;saveMenu();toast("Saved")};
+$("#mlist").onclick=e=>{const d=e.target.dataset.d,up=e.target.dataset.up,rm=e.target.dataset.rm;
+if(up){upId=up;$("#mpic").value="";$("#mpic").click();return}
+if(rm){const m=menu.find(x=>x.id==rm);if(m&&confirm("Remove the photo of "+m.name+"?")){const old=m.imgPath;delete m.img;delete m.imgPath;saveMenu();drawMgr();drawMenu();if(old)storage.ref(old).delete().catch(()=>{})}return}
+if(d&&confirm("Remove this item?")){const m=menu.find(x=>x.id==d);if(m&&m.imgPath)storage.ref(m.imgPath).delete().catch(()=>{});menu=menu.filter(m=>m.id!=d);delete cart[d];saveMenu();drawMgr()}};
+// ---- menu photos: shrink in the browser (max 800px WebP) then upload ----
+let upId=null;
+function shrink(file){return new Promise((ok,no)=>{const u=URL.createObjectURL(file),i=new Image();i.onload=()=>{const k=Math.min(1,800/Math.max(i.width,i.height)),c=document.createElement("canvas");c.width=Math.round(i.width*k);c.height=Math.round(i.height*k);c.getContext("2d").drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(u);
+  c.toBlob(b=>b&&b.type=="image/webp"?ok(b):c.toBlob(j=>j?ok(j):no(new Error("img")),"image/jpeg",.82),"image/webp",.8)};i.onerror=()=>{URL.revokeObjectURL(u);no(new Error("img"))};i.src=u})}
+$("#mpic").onchange=async()=>{const f=$("#mpic").files[0],m=menu.find(x=>x.id==upId);if(!f||!m)return;
+  if(!/^image\//.test(f.type)){toast("Choose a photo (JPG, PNG or WebP)");return}
+  toast("Uploading photo…");
+  try{const b=await shrink(f),ext=b.type=="image/webp"?"webp":"jpg",path="menu/"+m.id+"_"+Date.now()+"."+ext,old=m.imgPath;
+    const snap=await storage.ref(path).put(b,{contentType:b.type,cacheControl:"public,max-age=31536000"});
+    m.img=await snap.ref.getDownloadURL();m.imgPath=path;await saveMenu();drawMgr();drawMenu();toast("Photo saved");
+    if(old)storage.ref(old).delete().catch(()=>{})}
+  catch(e){console.error("photo upload",e);toast(e&&e.code=="storage/unauthorized"?"Upload blocked. Check the Storage rules.":"Photo upload failed. Is Firebase Storage turned on?")}};
 $("#add").onclick=()=>{const n=$("#nn").value.trim(),c=$("#nc").value.trim()||"Other",p=+$("#np").value;if(!n||!(p>=0)||$("#np").value===""){toast("Enter a name and price");return}
-menu.push({id:Date.now(),name:n,cat:c,price:p,on:true});saveMenu();$("#nn").value=$("#nc").value=$("#np").value="";drawMgr();toast("Item added")};
+menu.push({id:Date.now(),name:n,cat:c,price:p,on:true,veg:$("#nv").value=="1"});saveMenu();$("#nn").value=$("#nc").value=$("#np").value="";drawMgr();toast("Item added")};
 function drawSet(){$("#s-name").value=S.name;$("#s-addr").value=S.addr;$("#s-gstin").value=S.gstin;$("#s-gst").value=S.gst;$("#s-foot").value=S.foot;$("#s-pw").value=S.pw||80}
 $("#save").onclick=()=>{S={name:$("#s-name").value||"2 Friends Cafe",addr:$("#s-addr").value,gstin:$("#s-gstin").value,gst:Math.max(0,+$("#s-gst").value||0),foot:$("#s-foot").value,pw:+$("#s-pw").value||80};saveSet();$("#hname").textContent=S.name;drawCart();toast("Settings saved")};
 $("#wipe").onclick=()=>{if(cur.role=="admin"&&confirm("Delete all bills currently shown in the Orders tab? This cannot be undone."))wipeOrders()};
@@ -82,9 +97,9 @@ const off=()=>{un.forEach(f=>f());uo.forEach(f=>f());un=[];uo=[]};
 async function saveMenu(){if(cur.role!="admin")return;try{await fdb.doc("menu/main").set({items:menu})}catch(e){toast("Save failed")}}
 async function saveSet(){if(cur.role!="admin")return;try{await fdb.doc("settings/main").set(S)}catch(e){toast("Save failed")}}
 async function placeOrder(o,kid){try{const kr=kid?fdb.doc("kiosk_orders/"+kid):null,ur=fdb.doc("users/"+cur.u),or=fdb.collection("orders").doc();
-await fdb.runTransaction(async t=>{const ks=kr?await t.get(kr):null;if(kr&&!ks.exists)throw new Error("kiosk-gone");const s=await t.get(ur),d=s.data(),n=(d.billCount||0)+1,sk=o.lines.filter(l=>stk[l.id]).map(l=>({r:fdb.doc("stock/"+l.id),q:l.qty})),sn=await Promise.all(sk.map(x=>t.get(x.r)));o.lb=(d.initials||"XX")+"-"+String(n).padStart(4,"0");o.id=or.id;if(kr)t.delete(kr);t.update(ur,{billCount:n});t.set(or,o);sn.forEach((z,i)=>{if(z.exists)t.update(sk[i].r,{qty:Math.max(0,z.data().qty-sk[i].q)})})});return true}catch(e){console.error("placeOrder",e);toast(e&&e.message=="kiosk-gone"?"This kiosk order was already billed or dismissed by someone else.":"Could not save the bill. Check your connection.");if(e&&e.message=="kiosk-gone"){loadedKid="";reset()}return false}}
-async function delOrder(id){try{await fdb.doc("orders/"+id).delete()}catch(e){toast("Delete failed")}}
-async function wipeOrders(){try{const L=orders.slice();for(let i=0;i<L.length;i+=400){const b=fdb.batch();L.slice(i,i+400).forEach(o=>b.delete(fdb.doc("orders/"+o.id)));await b.commit()}toast("Bills deleted")}catch(e){toast("Delete failed")}}
+await fdb.runTransaction(async t=>{const ks=kr?await t.get(kr):null;if(kr&&!ks.exists)throw new Error("kiosk-gone");const s=await t.get(ur),d=s.data(),n=(d.billCount||0)+1,sk=o.lines.filter(l=>stk[l.id]).map(l=>({r:fdb.doc("stock/"+l.id),q:l.qty})),sn=await Promise.all(sk.map(x=>t.get(x.r)));o.lb=(d.initials||"XX")+"-"+String(n).padStart(4,"0");o.id=or.id;if(kr)t.delete(kr);t.update(ur,{billCount:n});t.set(or,o);t.set(fdb.doc("kitchen/"+or.id),{day:o.day,t:o.t,by:cur.u,lb:o.lb,kt:o.kt||"",cust:o.cust||"",tbl:o.tbl||"",type:o.type||"",note:o.note||"",lines:o.lines.map(l=>({name:l.name,qty:l.qty})),ks:"prep"});sn.forEach((z,i)=>{if(z.exists)t.update(sk[i].r,{qty:Math.max(0,z.data().qty-sk[i].q)})})});return true}catch(e){console.error("placeOrder",e);toast(e&&e.message=="kiosk-gone"?"This kiosk order was already billed or dismissed by someone else.":"Could not save the bill. Check your connection.");if(e&&e.message=="kiosk-gone"){loadedKid="";reset()}return false}}
+async function delOrder(id){try{const b=fdb.batch();b.delete(fdb.doc("orders/"+id));b.delete(fdb.doc("kitchen/"+id));await b.commit()}catch(e){toast("Delete failed")}}
+async function wipeOrders(){try{const L=orders.slice();for(let i=0;i<L.length;i+=200){const b=fdb.batch();L.slice(i,i+200).forEach(o=>{b.delete(fdb.doc("orders/"+o.id));b.delete(fdb.doc("kitchen/"+o.id))});await b.commit()}toast("Bills deleted")}catch(e){toast("Delete failed")}}
 function subOrders(){uo.forEach(f=>f());uo=[];let q=fdb.collection("orders");
 if(cur.role=="admin")q=fd?q.where("day","==",fd):q.orderBy("t","desc").limit(300);else{q=q.where("by","==",cur.u);if(fd)q=q.where("day","==",fd)}
 uo.push(q.onSnapshot(s=>{orders=s.docs.map(d=>d.data()).sort((a,b)=>b.t-a.t);drawOrders()},()=>toast("Bills unavailable")))}
@@ -99,6 +114,13 @@ if(cur.role=="admin")un.push(fdb.collection("users").onSnapshot(s=>{users={};s.d
       document.title=(kioskOrders.length?"("+kioskOrders.length+") ":"")+"2 Friends Cafe - Billing";
       drawKioskAlerts();drawOrders();
     },()=>toast("Kiosk orders unavailable. Check Firestore rules.")));
+    un.push(fdb.collection("kitchen").where("day","==",today()).onSnapshot(s=>{
+      kit=s.docs.map(d=>Object.assign({id:d.id},d.data())).sort((a,b)=>a.t-b.t);
+      const prev=kitSeen;kitSeen={};kit.forEach(k=>kitSeen[k.id]=k.ks);
+      if(prev){const r=kit.filter(k=>k.ks=="ready"&&prev[k.id]&&prev[k.id]!="ready");if(r.length){beep(2);toast("Ready: call "+r.map(k=>k.cust||k.lb).join(", "))}
+        if(kit.some(k=>k.ks=="prep"&&!prev[k.id])&&document.body.dataset.tab=="kit")beep()}
+      drawKitchen();drawDash();
+    },()=>toast("Kitchen screen unavailable. Check Firestore rules.")));
     subOrders();subDash()
 }
 let dOrders=[],dayKey="";
@@ -124,38 +146,63 @@ const hr={};T.forEach(o=>{const k=new Date(o.t).getHours();hr[k]=(hr[k]||0)+o.to
 if(ks.length){const a=Math.min(...ks),z=Math.max(...ks,a+3),m2=Math.max(...Object.values(hr));let r="";for(let k=a;k<=z;k++)r+=bar((k%12||12)+(k<12?" am":" pm"),hr[k]||0,m2,hr[k]?rs(hr[k]):"");chart+=`<div class="card"><b>Busy hours today</b><div class="hbs">${r}</div></div>`}}
 const low=menu.filter(m=>stk[m.id]&&stk[m.id].qty<=stk[m.id].low);
 el.innerHTML=`<div class="dhead"><div><h2>${gr}${nmx?", "+nmx:""}</h2><small>${new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"})}${adm?"":" · your bills today"}</small></div><div class="dact"><button class="btn" data-go="bill">+ New bill</button><button class="btn s" data-go="orders">Orders</button></div></div>
-<div class="dtiles">${tile("Sales today",rs(rev),delta===null?"":(delta>=0?"▲ ":"▼ ")+Math.abs(delta)+"% vs yesterday",delta===null?"":delta>=0?"up":"dn")}${tile("Bills",T.length,"")}${tile("Average bill",rs(T.length?rev/T.length:0),"")}${tile("Kiosk waiting",kioskOrders.length,kioskOrders.length?"Tap to open":"All clear",kioskOrders.length?"warn":"")}</div>
+<div class="dtiles">${tile("Sales today",rs(rev),delta===null?"":(delta>=0?"▲ ":"▼ ")+Math.abs(delta)+"% vs yesterday",delta===null?"":delta>=0?"up":"dn")}${tile("Bills",T.length,"Avg "+rs(T.length?rev/T.length:0))}${tile("Waiting to pay",kioskOrders.length,kioskOrders.length?"Kiosk orders":"All clear",kioskOrders.length?"warn":"")}${(()=>{const p=kit.filter(k=>k.ks=="prep").length,r=kit.filter(k=>k.ks=="ready").length;return `<div class="dt go${p?" warn":""}" data-go="kit"><span>In kitchen</span><b>${p}</b><small>${r?r+" ready to call":"&nbsp;"}</small></div>`})()}</div>
 <div class="dgrid"><div class="card"><b>Payments today</b><div class="hbs">${pays.map(p=>bar(p[0],p[1],pm,rs(p[1]))).join("")}</div></div>
 <div class="card"><b>Top sellers today</b><div class="hbs">${top.map(x=>bar(x[0],x[1],tm,x[1]+" sold")).join("")||'<div class="empty">No sales yet today</div>'}</div></div>${chart}
 ${adm?`<div class="card"><b>Low stock</b>${low.length?low.map(m=>`<div class="line"><span class="n">${E(m.name)}</span><b class="${stk[m.id].qty<=0?"bad":""}">${stk[m.id].qty<=0?"Out":stk[m.id].qty+" left"}</b></div>`).join(""):'<div class="empty">Everything is stocked</div>'}</div>`:""}</div>`}
-$("#dash").onclick=e=>{const g=e.target.closest("[data-go]");if(g){go(g.dataset.go);render();return}if(e.target.closest(".dt.warn")){go("orders");render()}};
-function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.connect(g);g.connect(a.destination);o.frequency.value=880;g.gain.setValueAtTime(.2,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.6);o.start();o.stop(a.currentTime+.6)}catch(e){}}
+$("#dash").onclick=e=>{const g=e.target.closest("[data-go]");if(g){go(g.dataset.go);render();return}if(e.target.closest(".dt.warn:not(.go)")){go("orders");render()}};
+function beep(n){try{const a=new (window.AudioContext||window.webkitAudioContext)();for(let i=0;i<(n||1);i++){const o=a.createOscillator(),g=a.createGain(),t0=a.currentTime+i*.35;o.connect(g);g.connect(a.destination);o.frequency.value=i?1175:880;g.gain.setValueAtTime(.2,t0);g.gain.exponentialRampToValueAtTime(.001,t0+.3);o.start(t0);o.stop(t0+.3)}}catch(e){}}
 function drawKioskAlerts(){
   const nb=$("#nb-o");if(nb){nb.textContent=kioskOrders.length||"";nb.style.display=kioskOrders.length?"":"none"}drawDash();
   const el=$("#kiosk-alerts");if(!el)return;
   if(!kioskOrders.length){el.innerHTML="";return}
   const ago=t=>{const m=Math.max(0,Math.round((Date.now()-t)/6e4));return m<1?"just now":m<60?m+" min ago":Math.floor(m/60)+"h ago"};
-  el.innerHTML=`<div class="kqh"><b>Kiosk orders waiting (${kioskOrders.length})</b><small>oldest first</small></div><div class="kq">${kioskOrders.map(o=>`<div class="kc${o.id==loadedKid?" ld":""}"><div class="kh"><b>#${E(o.token||"")}</b><span>${E(o.type||"")}${o.tbl?" · Table "+E(o.tbl):""}</span><small>${ago(o.t)}</small></div><div class="kn">${E(o.cust||"")} · ${o.lines.reduce((a,l)=>a+l.qty,0)} item${o.lines.reduce((a,l)=>a+l.qty,0)==1?"":"s"} · ${rs(o.tot)}</div><div class="ka">${o.id==loadedKid?'<span class="kl">In current bill</span>':`<button class="btn s w" data-kid="${o.id}">Load</button>`}<button class="btn d w" data-kdel="${o.id}" aria-label="Dismiss order" title="Dismiss">&times;</button></div></div>`).join("")}</div>`;
+  el.innerHTML=`<div class="kqh"><b>Kiosk orders · collect payment (${kioskOrders.length})</b><small>oldest first</small></div><div class="kq">${kioskOrders.map(o=>`<div class="kc${o.id==loadedKid?" ld":""}${Date.now()-o.t>18e5?" old":""}"><div class="kh"><b>#${E(o.token||"")}</b><span>${E(o.type||"")}${o.tbl?" · Table "+E(o.tbl):""}</span><small>${ago(o.t)}</small></div>${o.note?`<div class="kno">${E(o.note)}</div>`:""}<div class="kn">${E(o.cust||"")} · ${o.lines.reduce((a,l)=>a+l.qty,0)} item${o.lines.reduce((a,l)=>a+l.qty,0)==1?"":"s"} · ${rs(o.tot)}</div><div class="ka">${o.id==loadedKid?'<span class="kl">In current bill</span>':`<button class="btn s" data-kpay="Cash" data-k="${o.id}">Cash</button><button class="btn s" data-kpay="UPI" data-k="${o.id}">UPI</button><button class="btn s w" data-kid="${o.id}" title="Open in bill to change items or take card">Edit</button>`}<button class="btn d w" data-kdel="${o.id}" aria-label="Dismiss order" title="Dismiss">&times;</button></div></div>`).join("")}</div>`;
 }
 setInterval(()=>{if(cur.u&&kioskOrders.length)drawKioskAlerts()},60000);
+function loadKiosk(o){
+  if(Object.keys(cart).length&&o.id!=loadedKid&&!confirm("Replace the current bill with this kiosk order?"))return false;
+  cart={};o.lines.forEach(l=>{if(menu.some(m=>m.id==l.id))cart[l.id]=l.qty});
+  $("#cust").value=o.cust||"";$("#tbl").value=o.tbl||"";$("#ph").value=o.phone||"";$("#note").value=o.note||"";$("#disc").value=0;
+  const rad=document.querySelector(`[name=ot][value="${o.type}"]`);if(rad)rad.checked=true;
+  loadedKid=o.id;drawCart();drawKioskAlerts();return true}
 $("#kiosk-alerts").onclick=async e=>{
-  const kid=e.target.dataset.kid,kdel=e.target.dataset.kdel;
+  const b=e.target.closest("button");if(!b)return;
+  const kid=b.dataset.kid,kdel=b.dataset.kdel,kpay=b.dataset.kpay;
+  if(kpay){
+    const o=kioskOrders.find(x=>x.id==b.dataset.k);if(!o)return;
+    if(!confirm(`Collect ${rs(o.tot)} by ${kpay} from ${o.cust||"customer"} (#${o.token||""})?\nIt goes to the kitchen after this.`))return;
+    if(!loadKiosk(o))return;
+    if(o.lines.length!=Object.keys(cart).length)toast("Some items are no longer on the menu. Check the bill.");
+    $("#pay").value=kpay;$("#gen").click();return}
   if(kid){
     const o=kioskOrders.find(x=>x.id==kid);
-    if(o){
-      if(Object.keys(cart).length&&!confirm("Replace the current bill with this kiosk order?"))return;
-      cart={};o.lines.forEach(l=>{cart[l.id]=l.qty});
-      $("#cust").value = o.cust || "";
-      $("#tbl").value = o.tbl || "";
-      $("#ph").value = o.phone || "";
-      const rad=document.querySelector(`[name=ot][value="${o.type}"]`);if(rad)rad.checked=true;
-      loadedKid=kid;
-      const nb=document.querySelector('nav button[data-t="bill"]');if(nb)nb.click();
-      drawCart();drawKioskAlerts();toast("Kiosk order loaded. Generate the bill to complete it.");
-    }
+    if(o&&loadKiosk(o)){go("bill");render();toast("Kiosk order loaded. Change items if needed, then Generate bill.")}
   }
-  if(kdel){if(kdel==loadedKid)loadedKid="";try{await fdb.doc("kiosk_orders/"+kdel).delete()}catch(er){}}
+  if(kdel){const o=kioskOrders.find(x=>x.id==kdel);if(!confirm(`Remove kiosk order #${o?o.token:""}${o&&o.cust?" ("+o.cust+")":""}? Use this only if the customer left.`))return;
+    if(kdel==loadedKid)reset();try{await fdb.doc("kiosk_orders/"+kdel).delete()}catch(er){toast("Could not remove")}}
 };
+// ---- kitchen board ----
+const mins=t=>Math.max(0,Math.floor((Date.now()-t)/6e4));
+function drawKitchen(){
+  const P=kit.filter(k=>k.ks=="prep"),R=kit.filter(k=>k.ks=="ready"),D=kit.filter(k=>k.ks=="done").sort((a,b)=>(b.tc||0)-(a.tc||0)).slice(0,8);
+  const nb=$("#nb-k");if(nb)nb.textContent=P.length||"";
+  // "call name" strip for the counter, shown on every tab except Kitchen
+  const rs2=$("#ready-strip");if(rs2)rs2.innerHTML=R.length?`<div class="rqh"><b>Ready · call name (${R.length})</b></div><div class="rq">${R.map(k=>`<div class="rc"><div><b>${E(k.cust||k.lb)}</b><small>${k.kt?"#"+E(k.kt)+" · ":""}${E(k.lb)}${k.tbl?" · Table "+E(k.tbl):""}</small></div><button class="btn s w" data-kc="${k.id}">Collected</button></div>`).join("")}</div>`:"";
+  const el=$("#kit");if(!el)return;
+  const sum={};P.forEach(k=>k.lines.forEach(l=>sum[l.name]=(sum[l.name]||0)+l.qty));
+  const card=(k,btn)=>{const m=mins(k.t);return `<div class="tk ${k.ks}${k.ks=="prep"&&m>=10?" late":k.ks=="prep"&&m>=5?" warn":""}">
+<div class="tkh"><div><b>${E(k.cust||k.lb)}</b><small>${k.kt?"Kiosk #"+E(k.kt)+" · ":""}${E(k.lb)} · ${E(k.type)}${k.tbl?" · Table "+E(k.tbl):""}</small></div><span class="tm">${k.ks=="prep"?m+" min":"ready "+mins(k.tr||k.t)+" min"}</span></div>
+<ul>${k.lines.map(l=>`<li><b>${l.qty}×</b> ${E(l.name)}</li>`).join("")}</ul>${k.note?`<div class="tkn">${E(k.note)}</div>`:""}
+<div class="tka">${btn}</div></div>`};
+  el.innerHTML=`${P.length?`<div class="card ksum"><b>To make now</b><div>${Object.entries(sum).sort((a,b)=>b[1]-a[1]).map(([n,q])=>`<span><b>${q}×</b> ${E(n)}</span>`).join("")}</div></div>`:""}
+<div class="kcols"><div><h3>To make <em>${P.length}</em></h3>${P.map(k=>card(k,`<button class="btn" data-kr="${k.id}">Mark ready</button>`)).join("")||'<div class="empty">Nothing to make</div>'}</div>
+<div><h3>Ready · call name <em>${R.length}</em></h3>${R.map(k=>card(k,`<button class="btn s w" data-kb="${k.id}" title="Back to To make" aria-label="Back to To make">&larr;</button><button class="btn" data-kc="${k.id}">Collected</button>`)).join("")||'<div class="empty">No orders waiting for pickup</div>'}</div></div>
+${D.length?`<details class="card kdone"><summary>Collected recently (${D.length})</summary>${D.map(k=>`<div class="line"><span class="n">${E(k.cust||k.lb)} <small>${E(k.lb)}</small></span><button class="btn s w" data-kr="${k.id}">Undo</button></div>`).join("")}</details>`:""}`}
+async function kitSet(id,ks){const u={ks};if(ks=="ready")u.tr=Date.now();if(ks=="done")u.tc=Date.now();try{await fdb.doc("kitchen/"+id).update(u)}catch(e){toast("Could not update. Check your connection.")}}
+const kitClick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.kr)kitSet(b.dataset.kr,"ready");if(b.dataset.kc)kitSet(b.dataset.kc,"done");if(b.dataset.kb)kitSet(b.dataset.kb,"prep")};
+$("#kit").onclick=kitClick;$("#ready-strip").onclick=kitClick;
+setInterval(()=>{if(cur.u&&kit.length)drawKitchen()},30000);
 function drawUsers(){if(cur.role!="admin")return;$("#ulist").innerHTML=Object.entries(users).map(([id,u])=>`<div class="line"><span class="n"><b>${E(u.name)}</b> (${E(u.email)}), ${u.role}</span>${id==cur.u?"":`<button class="btn d w" data-x="${id}">Remove</button>`}</div>`).join("")}
 $("#ulist").onclick=async e=>{const x=e.target.dataset.x;if(x&&cur.role=="admin"&&confirm("Remove this account? They will lose access."))try{await fdb.doc("users/"+x).delete()}catch(er){toast("Could not remove")}};
 $("#uadd").onclick=async()=>{if(cur.role!="admin")return;const u=$("#ua").value.trim().toLowerCase(),n=$("#un").value.trim()||u,p=$("#up").value,r=$("#ur").value;

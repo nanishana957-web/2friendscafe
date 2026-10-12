@@ -1,0 +1,24 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ---- menu/{file}: item photos. Anyone can view (kiosk); only admins upload or delete ----
+    match /menu/{file} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
+
+    // everything else is closed
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

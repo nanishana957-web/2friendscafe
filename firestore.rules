@@ -63,14 +63,25 @@ service cloud.firestore {
 
     // ---- kiosk_orders/{id}: public create, staff read/update/delete ----
     match /kiosk_orders/{id} {
-      allow create: if request.resource.data.keys().hasOnly(['t','day','cust','phone','tbl','type','lines','sub','d','g','ro','tot','gst','status','token'])
+      allow create: if request.resource.data.keys().hasOnly(['t','day','cust','phone','tbl','type','note','lines','sub','d','g','ro','tot','gst','status','token'])
         && request.resource.data.lines is list
         && request.resource.data.lines.size() > 0
         && request.resource.data.lines.size() <= 50
         && request.resource.data.tot is number
         && request.resource.data.cust is string
-        && request.resource.data.cust.size() <= 60;
+        && request.resource.data.cust.size() <= 60
+        && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 150));
       allow read, update, delete: if isStaff();
+    }
+
+    // ---- kitchen/{billId}: ticket created with each bill; staff move it prep -> ready -> done ----
+    match /kitchen/{id} {
+      allow read: if isStaff();
+      allow create: if isStaff() && request.resource.data.by == request.auth.uid;
+      allow update: if isStaff()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ks','tr','tc'])
+        && request.resource.data.ks in ['prep','ready','done'];
+      allow delete: if isAdmin();
     }
 
     // ---- kiosk_counter/{day}: daily token counter, public can only add 1 ----

@@ -18,6 +18,8 @@ export default function Kiosk() {
   const [orderToken, setOrderToken] = useState("");
   const [orderTotal, setOrderTotal] = useState(0);
   const [tbl, setTbl] = useState("");
+  const [note, setNote] = useState("");
+  const [diet, setDiet] = useState("all"); // all | veg | nonveg
   const [placing, setPlacing] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [menuErr, setMenuErr] = useState(false);
@@ -49,7 +51,7 @@ export default function Kiosk() {
     const limit = step === "done" ? 20000 : 120000;
     const id = setTimeout(resetAll, limit);
     return () => clearTimeout(id);
-  }, [step, cart, cust, phone, tbl, type]);
+  }, [step, cart, cust, phone, tbl, type, note]);
 
   const cats = ["All", ...new Set(menu.map(m => m.cat))];
 
@@ -117,6 +119,7 @@ export default function Kiosk() {
       phone: sanitizedPhone.slice(-10), // Store exactly 10 digits for WhatsApp
       tbl: type === "Dine-in" ? tbl.trim().slice(0, 10) : "",
       type,
+      note: note.trim().slice(0, 150),
       lines: c.lines,
       sub: c.sub,
       d: 0,
@@ -175,6 +178,8 @@ export default function Kiosk() {
     setOrderToken("");
     setOrderTotal(0);
     setTbl("");
+    setNote("");
+    setDiet("all");
     orderRef.current = null;
   };
 
@@ -289,6 +294,7 @@ export default function Kiosk() {
             <div className="k-items-list">
               {c.lines.map(l => (
                 <div key={l.id} className="k-review-item">
+                  {(() => { const mi = menu.find(x => x.id == l.id); return mi && mi.img ? <img className="k-review-thumb" src={mi.img} alt="" /> : null; })()}
                   <div className="k-review-item-info">
                     <b>{l.name}</b>
                     <small>₹{l.price} each</small>
@@ -302,6 +308,17 @@ export default function Kiosk() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="k-section">
+            <label className="k-section-label">Special request (optional)</label>
+            <input
+              className="k-phone-input"
+              placeholder="e.g. less sugar, no ice"
+              value={note}
+              maxLength={150}
+              onChange={e => setNote(e.target.value)}
+            />
           </div>
 
           {/* Summary */}
@@ -328,7 +345,8 @@ export default function Kiosk() {
 
   // ── MENU SCREEN ──
   const filteredMenu = menu.filter(m =>
-    m.on && (cat === "All" || m.cat === cat) && m.name.toLowerCase().includes(q.toLowerCase())
+    m.on && (cat === "All" || m.cat === cat) && m.name.toLowerCase().includes(q.toLowerCase()) &&
+    (diet === "all" || (diet === "veg" ? m.veg === true : m.veg === false))
   );
 
   return (
@@ -352,6 +370,16 @@ export default function Kiosk() {
           placeholder="Search menu..."
         />
         {q && <button className="k-search-clear" onClick={() => setQ("")}><X size={18} /></button>}
+      </div>
+
+      {/* Veg / Non-veg filter */}
+      <div className="k-diet">
+        <button className={`k-diet-btn veg ${diet === "veg" ? "active" : ""}`} onClick={() => setDiet(diet === "veg" ? "all" : "veg")}>
+          <i className="k-vd" /> Veg
+        </button>
+        <button className={`k-diet-btn nonveg ${diet === "nonveg" ? "active" : ""}`} onClick={() => setDiet(diet === "nonveg" ? "all" : "nonveg")}>
+          <i className="k-vd nv" /> Non-veg
+        </button>
       </div>
 
       {/* Categories */}
@@ -380,7 +408,14 @@ export default function Kiosk() {
           return (
             <div key={m.id} className={`k-menu-item ${out ? "out" : ""} ${inCart > 0 ? "in-cart" : ""}`}>
               <div className="k-menu-item-body" onClick={() => !out && addItem(m)}>
-                <b className="k-item-name">{m.name}</b>
+                <div className="k-item-img">
+                  {m.img ? <img src={m.img} alt="" loading="lazy" /> : <span>{(m.name || "?")[0]}</span>}
+                </div>
+                <b className="k-item-name">
+                  {m.veg === true && <i className="k-vd" title="Veg" />}
+                  {m.veg === false && <i className="k-vd nv" title="Non-veg" />}
+                  {m.name}
+                </b>
                 <span className="k-item-price">₹{m.price}</span>
                 {s && s.qty <= s.low && s.qty > 0 && <small className="k-item-low">Only {s.qty} left</small>}
                 {out && <small className="k-item-out">Out of stock</small>}

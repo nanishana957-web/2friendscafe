@@ -132,3 +132,24 @@ body.kiosk-body #lo{display:none!important}
   .k-page{border-left:1px solid #e8ddd2;border-right:1px solid #e8ddd2}
   body.kiosk-body{background:#e8ddd2}
 }
+
+
+/* ===== menu photos ===== */
+.k-menu-item-body{padding:0 0 12px}
+.k-menu-item-body>:not(.k-item-img){margin-left:12px;margin-right:12px}
+.k-item-img{aspect-ratio:4/3;background:linear-gradient(135deg,#ffe3cc,#ffd0a8);display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:4px}
+.k-item-img img{width:100%;height:100%;object-fit:cover;display:block}
+.k-item-img span{font-size:40px;font-weight:800;color:#F76F00;opacity:.55}
+.k-review-thumb{width:48px;height:48px;border-radius:10px;object-fit:cover;flex:none}
+
+
+/* ===== veg / non-veg ===== */
+.k-diet{display:flex;gap:10px;padding:4px 16px 0}
+.k-diet-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:22px;border:2px solid #eadccf;background:#fff;font-weight:800;font-size:14px;color:#2b1a0e;cursor:pointer}
+.k-diet-btn.veg.active{border-color:#1f8a4c;background:#e7f6ed;color:#14532d}
+.k-diet-btn.nonveg.active{border-color:#8b4513;background:#f7ece4;color:#5a2d0c}
+.k-vd{display:inline-block;width:14px;height:14px;border:2px solid #1f8a4c;border-radius:3px;position:relative;vertical-align:-1px;margin-right:6px;flex:none;background:#fff}
+.k-vd::after{content:"";position:absolute;inset:2px;border-radius:50%;background:#1f8a4c}
+.k-vd.nv{border-color:#8b4513}
+.k-vd.nv::after{inset:auto;left:50%;top:50%;width:0;height:0;border-radius:0;background:none;transform:translate(-50%,-55%);border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid #8b4513}
+.k-diet-btn .k-vd{margin-right:0}
